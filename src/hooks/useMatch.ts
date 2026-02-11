@@ -1,41 +1,54 @@
-import { useState, useEffect } from "react";
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  doc,
-  query,
-  orderBy,
-  where,
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "../lib/supabase";
 import type { Match, PitchEvent, ScoreEvent, MatchStatus } from "../types";
 
 export function useMatches() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const q = query(collection(db, "matches"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      })) as Match[];
-      setMatches(data);
-      setLoading(false);
-    });
-    return unsub;
+  const fetchMatches = useCallback(async () => {
+    const { data } = await supabase
+      .from("matches")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (data) setMatches(data as Match[]);
+    setLoading(false);
   }, []);
 
-  async function createMatch(matchData: Omit<Match, "id">) {
-    const docRef = await addDoc(collection(db, "matches"), matchData);
-    return docRef.id;
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchMatches();
+
+    const channel = supabase
+      .channel("matches-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "matches" },
+        () => {
+          fetchMatches();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchMatches]);
+
+  async function createMatch(
+    matchData: Omit<Match, "id" | "created_at">
+  ): Promise<string> {
+    const { data, error } = await supabase
+      .from("matches")
+      .insert(matchData)
+      .select("id")
+      .single();
+    if (error) throw error;
+    return data.id;
   }
 
   async function updateMatch(id: string, updates: Partial<Match>) {
-    await updateDoc(doc(db, "matches", id), updates);
+    await supabase.from("matches").update(updates).eq("id", id);
   }
 
   return { matches, loading, createMatch, updateMatch };
@@ -47,69 +60,104 @@ export function useLiveMatch(matchId: string | undefined) {
   const [scoreEvents, setScoreEvents] = useState<ScoreEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const fetchMatch = useCallback(async () => {
+    if (!matchId) return;
+    const { data } = await supabase
+      .from("matches")
+      .select("*")
+      .eq("id", matchId)
+      .single();
+    if (data) setMatch(data as Match);
+    setLoading(false);
+  }, [matchId]);
+
+  const fetchPitchEvents = useCallback(async () => {
+    if (!matchId) return;
+    const { data } = await supabase
+      .from("pitch_events")
+      .select("*")
+      .eq("match_id", matchId)
+      .order("timestamp", { ascending: true });
+    if (data) setPitchEvents(data as PitchEvent[]);
+  }, [matchId]);
+
+  const fetchScoreEvents = useCallback(async () => {
+    if (!matchId) return;
+    const { data } = await supabase
+      .from("score_events")
+      .select("*")
+      .eq("match_id", matchId)
+      .order("timestamp", { ascending: true });
+    if (data) setScoreEvents(data as ScoreEvent[]);
+  }, [matchId]);
+
   useEffect(() => {
     if (!matchId) return;
 
-    const unsubs: (() => void)[] = [];
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchMatch(); fetchPitchEvents(); fetchScoreEvents();
 
-    unsubs.push(
-      onSnapshot(doc(db, "matches", matchId), (snap) => {
-        if (snap.exists()) {
-          setMatch({ id: snap.id, ...snap.data() } as Match);
+    const matchChannel = supabase
+      .channel(`match-${matchId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "matches",
+          filter: `id=eq.${matchId}`,
+        },
+        () => {
+          fetchMatch();
         }
-        setLoading(false);
-      })
-    );
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "pitch_events",
+          filter: `match_id=eq.${matchId}`,
+        },
+        () => {
+          fetchPitchEvents();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "score_events",
+          filter: `match_id=eq.${matchId}`,
+        },
+        () => {
+          fetchScoreEvents();
+        }
+      )
+      .subscribe();
 
-    const peQuery = query(
-      collection(db, "pitchEvents"),
-      where("matchId", "==", matchId),
-      orderBy("timestamp", "asc")
-    );
-    unsubs.push(
-      onSnapshot(peQuery, (snap) => {
-        setPitchEvents(
-          snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PitchEvent[]
-        );
-      })
-    );
-
-    const seQuery = query(
-      collection(db, "scoreEvents"),
-      where("matchId", "==", matchId),
-      orderBy("timestamp", "asc")
-    );
-    unsubs.push(
-      onSnapshot(seQuery, (snap) => {
-        setScoreEvents(
-          snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ScoreEvent[]
-        );
-      })
-    );
-
-    return () => unsubs.forEach((u) => u());
-  }, [matchId]);
+    return () => {
+      supabase.removeChannel(matchChannel);
+    };
+  }, [matchId, fetchMatch, fetchPitchEvents, fetchScoreEvents]);
 
   async function updateMatch(updates: Partial<Match>) {
     if (!matchId) return;
-    await updateDoc(doc(db, "matches", matchId), updates);
+    await supabase.from("matches").update(updates).eq("id", matchId);
   }
 
   async function updateMatchStatus(status: MatchStatus) {
     if (!matchId) return;
-    const now = Date.now();
-    const timestampUpdates: Record<string, number> = {};
+    const nowIso = new Date().toISOString();
+    const updates: Partial<Match> = { status };
 
-    if (status === "first_half") timestampUpdates["timestamps.kickOff"] = now;
-    if (status === "half_time") timestampUpdates["timestamps.halfTime"] = now;
-    if (status === "second_half")
-      timestampUpdates["timestamps.secondHalfStart"] = now;
-    if (status === "full_time") timestampUpdates["timestamps.fullTime"] = now;
+    if (status === "first_half") updates.kick_off_at = nowIso;
+    if (status === "half_time") updates.half_time_at = nowIso;
+    if (status === "second_half") updates.second_half_start_at = nowIso;
+    if (status === "full_time") updates.full_time_at = nowIso;
 
-    await updateDoc(doc(db, "matches", matchId), {
-      status,
-      ...timestampUpdates,
-    });
+    await supabase.from("matches").update(updates).eq("id", matchId);
   }
 
   async function addPitchEvent(
@@ -117,12 +165,11 @@ export function useLiveMatch(matchId: string | undefined) {
     type: "on" | "off",
     coachId: string
   ) {
-    await addDoc(collection(db, "pitchEvents"), {
-      matchId,
-      playerId,
+    await supabase.from("pitch_events").insert({
+      match_id: matchId!,
+      player_id: playerId,
       type,
-      timestamp: Date.now(),
-      recordedBy: coachId,
+      recorded_by: coachId,
     });
   }
 
@@ -132,36 +179,24 @@ export function useLiveMatch(matchId: string | undefined) {
     scorerId: string | undefined,
     coachId: string
   ) {
-    if (!matchId) return;
+    if (!matchId || !match) return;
 
-    const points = isOpposition
-      ? type === "try"
-        ? 5
-        : 2
-      : type === "try"
-        ? 5
-        : 2;
+    const points = type === "try" ? 5 : 2;
+    const scoreField = isOpposition ? "away_score" : "home_score";
+    const currentScore = isOpposition ? match.away_score : match.home_score;
 
-    const scoreField = isOpposition ? "awayScore" : "homeScore";
-    const currentMatch = match;
-    if (!currentMatch) return;
-
-    const currentScore = isOpposition
-      ? currentMatch.awayScore
-      : currentMatch.homeScore;
-
-    await addDoc(collection(db, "scoreEvents"), {
-      matchId,
+    await supabase.from("score_events").insert({
+      match_id: matchId,
       type,
-      scorerId: scorerId || null,
-      isOpposition,
-      timestamp: Date.now(),
-      recordedBy: coachId,
+      scorer_id: scorerId || null,
+      is_opposition: isOpposition,
+      recorded_by: coachId,
     });
 
-    await updateDoc(doc(db, "matches", matchId), {
-      [scoreField]: currentScore + points,
-    });
+    await supabase
+      .from("matches")
+      .update({ [scoreField]: currentScore + points })
+      .eq("id", matchId);
   }
 
   return {
@@ -176,21 +211,26 @@ export function useLiveMatch(matchId: string | undefined) {
   };
 }
 
+// Timestamps are ISO strings from Supabase, convert to ms for duration calc
+function toMs(isoString: string): number {
+  return new Date(isoString).getTime();
+}
+
 export function getPlayerPitchTime(
   playerId: string,
   pitchEvents: PitchEvent[],
   match: Match | null,
   currentTime: number
 ): number {
-  const events = pitchEvents.filter((e) => e.playerId === playerId);
+  const events = pitchEvents.filter((e) => e.player_id === playerId);
   let total = 0;
   let onTime: number | null = null;
 
   for (const event of events) {
     if (event.type === "on") {
-      onTime = event.timestamp;
+      onTime = toMs(event.timestamp);
     } else if (event.type === "off" && onTime !== null) {
-      total += event.timestamp - onTime;
+      total += toMs(event.timestamp) - onTime;
       onTime = null;
     }
   }
@@ -198,8 +238,8 @@ export function getPlayerPitchTime(
   // If still on pitch, count time up to now or full time
   if (onTime !== null) {
     const endTime =
-      match?.status === "full_time" && match.timestamps.fullTime
-        ? match.timestamps.fullTime
+      match?.status === "full_time" && match.full_time_at
+        ? toMs(match.full_time_at)
         : currentTime;
     total += endTime - onTime;
   }
@@ -218,7 +258,7 @@ export function isPlayerOnPitch(
   playerId: string,
   pitchEvents: PitchEvent[]
 ): boolean {
-  const events = pitchEvents.filter((e) => e.playerId === playerId);
+  const events = pitchEvents.filter((e) => e.player_id === playerId);
   if (events.length === 0) return false;
   return events[events.length - 1].type === "on";
 }

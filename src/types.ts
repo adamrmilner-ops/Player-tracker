@@ -1,10 +1,10 @@
 export interface Player {
   id: string;
   name: string;
-  position?: string;
-  squadNumber?: number;
+  position: string | null;
+  squad_number: number | null;
   active: boolean;
-  createdAt: number;
+  created_at: string;
 }
 
 export type MatchStatus =
@@ -13,13 +13,6 @@ export type MatchStatus =
   | "half_time"
   | "second_half"
   | "full_time";
-
-export interface MatchTimestamps {
-  kickOff?: number;
-  halfTime?: number;
-  secondHalfStart?: number;
-  fullTime?: number;
-}
 
 export interface WeatherInfo {
   description: string;
@@ -35,42 +28,43 @@ export interface GeoLocation {
 
 export interface Match {
   id: string;
-  date: string; // ISO date
+  date: string;
   opposition: string;
   venue: string;
-  isHome: boolean;
-  location?: GeoLocation;
-  weather?: WeatherInfo;
+  is_home: boolean;
+  location_lat: number | null;
+  location_lng: number | null;
+  weather_description: string | null;
+  weather_temp: number | null;
+  weather_wind_speed: number | null;
+  weather_icon: string | null;
   status: MatchStatus;
-  timestamps: MatchTimestamps;
-  selectedPlayerIds: string[];
-  homeScore: number;
-  awayScore: number;
-  createdAt: number;
-  createdBy: string;
+  kick_off_at: string | null;
+  half_time_at: string | null;
+  second_half_start_at: string | null;
+  full_time_at: string | null;
+  selected_player_ids: string[];
+  home_score: number;
+  away_score: number;
+  created_at: string;
+  created_by: string;
 }
 
 export interface PitchEvent {
   id: string;
-  matchId: string;
-  playerId: string;
+  match_id: string;
+  player_id: string;
   type: "on" | "off";
-  timestamp: number;
-  recordedBy: string;
+  timestamp: string;
+  recorded_by: string;
 }
 
 export interface ScoreEvent {
   id: string;
-  matchId: string;
+  match_id: string;
   type: "try" | "conversion";
-  scorerId?: string; // player ID, undefined for opposition
-  isOpposition: boolean;
-  timestamp: number;
-  recordedBy: string;
-}
-
-export interface Coach {
-  id: string;
-  name: string;
-  email: string;
+  scorer_id: string | null;
+  is_opposition: boolean;
+  timestamp: string;
+  recorded_by: string;
 }

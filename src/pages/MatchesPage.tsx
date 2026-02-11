@@ -79,7 +79,7 @@ export default function MatchesPage() {
 
       {matches.length === 0 && !showCreate && (
         <div className="text-center py-12 text-gray-400">
-          <Swords size={48} className="mx-auto mb-3 opacity-50" />
+          <SwordsIcon size={48} className="mx-auto mb-3 opacity-50" />
           <p className="font-medium">No matches yet</p>
           <p className="text-sm">Create a new match to get started</p>
         </div>
@@ -138,13 +138,13 @@ function MatchCard({ match, onClick }: { match: Match; onClick: () => void }) {
           </p>
           <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
             <MapPin size={12} />
-            {match.venue} ({match.isHome ? "Home" : "Away"})
+            {match.venue} ({match.is_home ? "Home" : "Away"})
           </p>
         </div>
         {match.status !== "not_started" && (
           <div className="text-right">
             <p className="text-xl font-bold text-gray-900">
-              {match.homeScore} - {match.awayScore}
+              {match.home_score} - {match.away_score}
             </p>
           </div>
         )}
@@ -163,11 +163,11 @@ function CreateMatchForm({
   onCancel,
   createMatch,
 }: {
-  activePlayers: { id: string; name: string; squadNumber?: number }[];
+  activePlayers: { id: string; name: string; squad_number?: number | null }[];
   coachId: string;
   onCreate: (matchId: string) => void;
   onCancel: () => void;
-  createMatch: (data: Omit<Match, "id">) => Promise<string>;
+  createMatch: (data: Omit<Match, "id" | "created_at">) => Promise<string>;
 }) {
   const [opposition, setOpposition] = useState("");
   const [venue, setVenue] = useState("");
@@ -197,16 +197,22 @@ function CreateMatchForm({
       date,
       opposition: opposition.trim(),
       venue: venue.trim(),
-      isHome,
-      location: location || undefined,
-      weather: weather || undefined,
+      is_home: isHome,
+      location_lat: location?.lat || null,
+      location_lng: location?.lng || null,
+      weather_description: weather?.description || null,
+      weather_temp: weather?.temp || null,
+      weather_wind_speed: weather?.windSpeed || null,
+      weather_icon: weather?.icon || null,
       status: "not_started",
-      timestamps: {},
-      selectedPlayerIds: Array.from(selectedIds),
-      homeScore: 0,
-      awayScore: 0,
-      createdAt: Date.now(),
-      createdBy: coachId,
+      kick_off_at: null,
+      half_time_at: null,
+      second_half_start_at: null,
+      full_time_at: null,
+      selected_player_ids: Array.from(selectedIds),
+      home_score: 0,
+      away_score: 0,
+      created_by: coachId,
     });
     onCreate(matchId);
   }
@@ -313,8 +319,8 @@ function CreateMatchForm({
                   : "bg-white border-gray-200 text-gray-600"
               }`}
             >
-              {p.squadNumber && (
-                <span className="font-bold mr-1">{p.squadNumber}</span>
+              {p.squad_number && (
+                <span className="font-bold mr-1">{p.squad_number}</span>
               )}
               {p.name}
             </button>
@@ -347,7 +353,7 @@ function CreateMatchForm({
   );
 }
 
-function Swords({ size, className }: { size: number; className?: string }) {
+function SwordsIcon({ size, className }: { size: number; className?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

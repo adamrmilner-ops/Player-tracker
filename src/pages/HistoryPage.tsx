@@ -32,9 +32,9 @@ export default function HistoryPage() {
       <div className="space-y-3">
         {completedMatches.map((match) => {
           const result =
-            match.homeScore > match.awayScore
+            match.home_score > match.away_score
               ? "W"
-              : match.homeScore < match.awayScore
+              : match.home_score < match.away_score
                 ? "L"
                 : "D";
           const resultColor =
@@ -44,12 +44,15 @@ export default function HistoryPage() {
                 ? "bg-red-100 text-red-700"
                 : "bg-gray-100 text-gray-700";
 
+          const toMs = (iso: string | null) =>
+            iso ? new Date(iso).getTime() : 0;
+
           const totalTime =
-            (match.timestamps.halfTime && match.timestamps.kickOff
-              ? match.timestamps.halfTime - match.timestamps.kickOff
+            (match.half_time_at && match.kick_off_at
+              ? toMs(match.half_time_at) - toMs(match.kick_off_at)
               : 0) +
-            (match.timestamps.fullTime && match.timestamps.secondHalfStart
-              ? match.timestamps.fullTime - match.timestamps.secondHalfStart
+            (match.full_time_at && match.second_half_start_at
+              ? toMs(match.full_time_at) - toMs(match.second_half_start_at)
               : 0);
           const totalMins = Math.floor(totalTime / 60000);
 
@@ -75,19 +78,20 @@ export default function HistoryPage() {
                   vs {match.opposition}
                 </p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {match.homeScore} - {match.awayScore}
+                  {match.home_score} - {match.away_score}
                 </p>
               </div>
 
               <div className="flex items-center gap-4 text-xs text-gray-500">
                 <span className="flex items-center gap-1">
                   <MapPin size={12} />
-                  {match.venue} ({match.isHome ? "H" : "A"})
+                  {match.venue} ({match.is_home ? "H" : "A"})
                 </span>
-                {match.weather && (
+                {match.weather_description && (
                   <span className="flex items-center gap-1">
                     <CloudSun size={12} />
-                    {match.weather.description}, {match.weather.temp}&deg;C
+                    {match.weather_description}
+                    {match.weather_temp !== null && <>, {match.weather_temp}&deg;C</>}
                   </span>
                 )}
                 {totalMins > 0 && (

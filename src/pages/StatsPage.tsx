@@ -1,14 +1,7 @@
-import { useState, useEffect } from "react";
-import {
-  collection,
-  onSnapshot,
-  query,
-  orderBy,
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "../lib/supabase";
 import { useSquad } from "../hooks/useSquad";
-import { useMatches } from "../hooks/useMatch";
-import { formatDuration } from "../hooks/useMatch";
+import { useMatches, formatDuration } from "../hooks/useMatch";
 import type { PitchEvent, ScoreEvent, Match } from "../types";
 import { Clock, Trophy, BarChart3 } from "lucide-react";
 
@@ -19,34 +12,44 @@ export default function StatsPage() {
   const [allScoreEvents, setAllScoreEvents] = useState<ScoreEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const unsubs: (() => void)[] = [];
-
-    unsubs.push(
-      onSnapshot(
-        query(collection(db, "pitchEvents"), orderBy("timestamp", "asc")),
-        (snap) => {
-          setAllPitchEvents(
-            snap.docs.map((d) => ({ id: d.id, ...d.data() })) as PitchEvent[]
-          );
-          setLoading(false);
-        }
-      )
-    );
-
-    unsubs.push(
-      onSnapshot(
-        query(collection(db, "scoreEvents"), orderBy("timestamp", "asc")),
-        (snap) => {
-          setAllScoreEvents(
-            snap.docs.map((d) => ({ id: d.id, ...d.data() })) as ScoreEvent[]
-          );
-        }
-      )
-    );
-
-    return () => unsubs.forEach((u) => u());
+  const fetchEvents = useCallback(async () => {
+    const [pitchRes, scoreRes] = await Promise.all([
+      supabase
+        .from("pitch_events")
+        .select("*")
+        .order("timestamp", { ascending: true }),
+      supabase
+        .from("score_events")
+        .select("*")
+        .order("timestamp", { ascending: true }),
+    ]);
+    if (pitchRes.data) setAllPitchEvents(pitchRes.data as PitchEvent[]);
+    if (scoreRes.data) setAllScoreEvents(scoreRes.data as ScoreEvent[]);
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchEvents();
+
+    const channel = supabase
+      .channel("stats-changes")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "pitch_events" },
+        () => fetchEvents()
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "score_events" },
+        () => fetchEvents()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchEvents]);
 
   const completedMatches = matches.filter((m) => m.status === "full_time");
 
@@ -58,26 +61,23 @@ export default function StatsPage() {
       let matchesPlayed = 0;
       const tries = allScoreEvents.filter(
         (e) =>
-          e.scorerId === player.id && e.type === "try" && !e.isOpposition
+          e.scorer_id === player.id && e.type === "try" && !e.is_opposition
       ).length;
       const conversions = allScoreEvents.filter(
         (e) =>
-          e.scorerId === player.id &&
+          e.scorer_id === player.id &&
           e.type === "conversion" &&
-          !e.isOpposition
+          !e.is_opposition
       ).length;
 
       for (const match of completedMatches) {
         const matchEvents = allPitchEvents.filter(
-          (e) => e.matchId === match.id && e.playerId === player.id
+          (e) => e.match_id === match.id && e.player_id === player.id
         );
 
         if (matchEvents.length > 0) {
           matchesPlayed++;
-          totalPitchTime += calculatePitchTimeForMatch(
-            matchEvents,
-            match
-          );
+          totalPitchTime += calculatePitchTimeForMatch(matchEvents, match);
         }
       }
 
@@ -124,9 +124,9 @@ export default function StatsPage() {
               className="bg-white rounded-xl p-3 shadow-sm border border-gray-200"
             >
               <div className="flex items-center gap-3 mb-2">
-                {player.squadNumber && (
+                {player.squad_number && (
                   <span className="bg-emerald-100 text-emerald-800 font-bold text-sm w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0">
-                    {player.squadNumber}
+                    {player.squad_number}
                   </span>
                 )}
                 <div className="flex-1 min-w-0">
@@ -178,6 +178,10 @@ export default function StatsPage() {
   );
 }
 
+function toMs(iso: string): number {
+  return new Date(iso).getTime();
+}
+
 function calculatePitchTimeForMatch(
   events: PitchEvent[],
   match: Match
@@ -187,15 +191,15 @@ function calculatePitchTimeForMatch(
 
   for (const event of events) {
     if (event.type === "on") {
-      onTime = event.timestamp;
+      onTime = toMs(event.timestamp);
     } else if (event.type === "off" && onTime !== null) {
-      total += event.timestamp - onTime;
+      total += toMs(event.timestamp) - onTime;
       onTime = null;
     }
   }
 
-  if (onTime !== null && match.timestamps.fullTime) {
-    total += match.timestamps.fullTime - onTime;
+  if (onTime !== null && match.full_time_at) {
+    total += toMs(match.full_time_at) - onTime;
   }
 
   return total;

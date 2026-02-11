@@ -56,7 +56,7 @@ export default function LiveMatchPage() {
   }
 
   const selectedPlayers = players.filter((p) =>
-    match.selectedPlayerIds.includes(p.id)
+    match.selected_player_ids.includes(p.id)
   );
   const onPitch = selectedPlayers.filter((p) =>
     isPlayerOnPitch(p.id, pitchEvents)
@@ -70,35 +70,35 @@ export default function LiveMatchPage() {
 
   const coachId = coach?.id || "unknown";
 
+  function toMs(iso: string | null): number {
+    return iso ? new Date(iso).getTime() : 0;
+  }
+
   function getElapsedTime(): string {
     if (!match) return "00:00";
-    const { timestamps, status } = match;
+    const { status } = match;
+    const kickOff = toMs(match.kick_off_at);
+    const halfTime = toMs(match.half_time_at);
+    const secondHalf = toMs(match.second_half_start_at);
+    const fullTime = toMs(match.full_time_at);
 
-    if (status === "first_half" && timestamps.kickOff) {
-      return formatDuration(now - timestamps.kickOff);
+    if (status === "first_half" && kickOff) {
+      return formatDuration(now - kickOff);
     }
-    if (status === "half_time" && timestamps.kickOff && timestamps.halfTime) {
-      return formatDuration(timestamps.halfTime - timestamps.kickOff);
+    if (status === "half_time" && kickOff && halfTime) {
+      return formatDuration(halfTime - kickOff);
     }
-    if (status === "second_half" && timestamps.secondHalfStart) {
-      const firstHalf =
-        timestamps.halfTime && timestamps.kickOff
-          ? timestamps.halfTime - timestamps.kickOff
-          : 0;
-      return formatDuration(
-        firstHalf + (now - timestamps.secondHalfStart)
-      );
+    if (status === "second_half" && secondHalf) {
+      const firstHalfDuration =
+        halfTime && kickOff ? halfTime - kickOff : 0;
+      return formatDuration(firstHalfDuration + (now - secondHalf));
     }
     if (status === "full_time") {
-      const firstHalf =
-        timestamps.halfTime && timestamps.kickOff
-          ? timestamps.halfTime - timestamps.kickOff
-          : 0;
-      const secondHalf =
-        timestamps.fullTime && timestamps.secondHalfStart
-          ? timestamps.fullTime - timestamps.secondHalfStart
-          : 0;
-      return formatDuration(firstHalf + secondHalf);
+      const firstHalfDuration =
+        halfTime && kickOff ? halfTime - kickOff : 0;
+      const secondHalfDuration =
+        fullTime && secondHalf ? fullTime - secondHalf : 0;
+      return formatDuration(firstHalfDuration + secondHalfDuration);
     }
     return "00:00";
   }
@@ -140,14 +140,16 @@ export default function LiveMatchPage() {
           </button>
           <div className="flex-1">
             <p className="text-sm opacity-80">
-              {match.isHome ? "Home" : "Away"} vs
+              {match.is_home ? "Home" : "Away"} vs
             </p>
             <p className="font-bold">{match.opposition}</p>
           </div>
-          {match.weather && (
+          {match.weather_description && (
             <div className="text-right text-xs opacity-80">
-              <p>{match.weather.description}</p>
-              <p>{match.weather.temp}&deg;C</p>
+              <p>{match.weather_description}</p>
+              {match.weather_temp !== null && (
+                <p>{match.weather_temp}&deg;C</p>
+              )}
             </div>
           )}
         </div>
@@ -157,7 +159,7 @@ export default function LiveMatchPage() {
           <div className="flex items-center justify-center gap-6">
             <div>
               <p className="text-xs opacity-70">Home</p>
-              <p className="text-4xl font-bold">{match.homeScore}</p>
+              <p className="text-4xl font-bold">{match.home_score}</p>
             </div>
             <div>
               <p className="text-xs opacity-70 mb-1">
@@ -178,7 +180,7 @@ export default function LiveMatchPage() {
             </div>
             <div>
               <p className="text-xs opacity-70">Away</p>
-              <p className="text-4xl font-bold">{match.awayScore}</p>
+              <p className="text-4xl font-bold">{match.away_score}</p>
             </div>
           </div>
 
@@ -265,11 +267,11 @@ export default function LiveMatchPage() {
             </h3>
             <div className="space-y-1">
               {scoreEvents.map((event) => {
-                const scorer = players.find((p) => p.id === event.scorerId);
-                const mins = match.timestamps.kickOff
-                  ? Math.floor(
-                      (event.timestamp - match.timestamps.kickOff) / 60000
-                    )
+                const scorer = players.find((p) => p.id === event.scorer_id);
+                const kickOffMs = toMs(match.kick_off_at);
+                const eventMs = new Date(event.timestamp).getTime();
+                const mins = kickOffMs
+                  ? Math.floor((eventMs - kickOffMs) / 60000)
                   : 0;
                 return (
                   <div
@@ -282,13 +284,13 @@ export default function LiveMatchPage() {
                     <Trophy
                       size={14}
                       className={
-                        event.isOpposition
+                        event.is_opposition
                           ? "text-red-500"
                           : "text-amber-500"
                       }
                     />
                     <span className="flex-1">
-                      {event.isOpposition
+                      {event.is_opposition
                         ? "Opposition"
                         : scorer?.name || "Unknown"}{" "}
                       - {event.type === "try" ? "Try" : "Conversion"}
@@ -340,7 +342,7 @@ function PlayerCard({
       } ${matchIsLive ? "active:scale-95" : "opacity-70"}`}
     >
       <div className="flex items-center gap-2 mb-1">
-        {player.squadNumber && (
+        {player.squad_number && (
           <span
             className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center ${
               isOnPitch
@@ -348,7 +350,7 @@ function PlayerCard({
                 : "bg-gray-300 text-gray-600"
             }`}
           >
-            {player.squadNumber}
+            {player.squad_number}
           </span>
         )}
         <span className="font-medium text-sm text-gray-900 truncate flex-1">
@@ -471,8 +473,8 @@ function ScoreModal({
                         : "bg-white border-gray-200 text-gray-600"
                     }`}
                   >
-                    {p.squadNumber && (
-                      <span className="font-bold mr-1">{p.squadNumber}</span>
+                    {p.squad_number && (
+                      <span className="font-bold mr-1">{p.squad_number}</span>
                     )}
                     {p.name}
                   </button>

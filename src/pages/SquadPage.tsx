@@ -27,19 +27,19 @@ export default function SquadPage() {
     setShowAdd(false);
   }
 
-  function startEdit(player: { id: string; name: string; position?: string; squadNumber?: number }) {
+  function startEdit(player: { id: string; name: string; position?: string | null; squad_number?: number | null }) {
     setEditingId(player.id);
     setEditName(player.name);
     setEditPosition(player.position || "");
-    setEditNumber(player.squadNumber?.toString() || "");
+    setEditNumber(player.squad_number?.toString() || "");
   }
 
   async function saveEdit() {
     if (!editingId || !editName.trim()) return;
     await updatePlayer(editingId, {
       name: editName.trim(),
-      position: editPosition.trim() || undefined,
-      squadNumber: editNumber ? parseInt(editNumber) : undefined,
+      position: editPosition.trim() || null,
+      squad_number: editNumber ? parseInt(editNumber) : null,
     });
     setEditingId(null);
   }
@@ -165,9 +165,9 @@ export default function SquadPage() {
               </div>
             ) : (
               <>
-                {player.squadNumber && (
+                {player.squad_number && (
                   <span className="bg-emerald-100 text-emerald-800 font-bold text-sm w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0">
-                    {player.squadNumber}
+                    {player.squad_number}
                   </span>
                 )}
                 <div className="flex-1 min-w-0">
@@ -203,7 +203,7 @@ export default function SquadPage() {
 
         {players.length === 0 && (
           <div className="text-center py-12 text-gray-400">
-            <Users size={48} className="mx-auto mb-3 opacity-50" />
+            <UsersIcon size={48} className="mx-auto mb-3 opacity-50" />
             <p className="font-medium">No players yet</p>
             <p className="text-sm">Add your squad members to get started</p>
           </div>
@@ -213,7 +213,7 @@ export default function SquadPage() {
   );
 }
 
-function Users(props: { size: number; className?: string }) {
+function UsersIcon(props: { size: number; className?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

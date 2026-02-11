@@ -1,49 +1,55 @@
-import { useState, useEffect } from "react";
-import {
-  collection,
-  onSnapshot,
-  addDoc,
-  updateDoc,
-  doc,
-  query,
-  orderBy,
-} from "firebase/firestore";
-import { db } from "../lib/firebase";
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "../lib/supabase";
 import type { Player } from "../types";
 
 export function useSquad() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const q = query(collection(db, "players"), orderBy("name"));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Player[];
-      setPlayers(data);
-      setLoading(false);
-    });
-    return unsub;
+  const fetchPlayers = useCallback(async () => {
+    const { data } = await supabase
+      .from("players")
+      .select("*")
+      .order("name");
+    if (data) setPlayers(data as Player[]);
+    setLoading(false);
   }, []);
+
+  useEffect(() => {
+    // Initial data load + realtime subscription
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchPlayers();
+
+    const channel = supabase
+      .channel("players-changes")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "players" },
+        () => {
+          fetchPlayers();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchPlayers]);
 
   async function addPlayer(
     name: string,
     position?: string,
     squadNumber?: number
   ) {
-    await addDoc(collection(db, "players"), {
+    await supabase.from("players").insert({
       name,
       position: position || null,
-      squadNumber: squadNumber || null,
-      active: true,
-      createdAt: Date.now(),
+      squad_number: squadNumber || null,
     });
   }
 
   async function updatePlayer(id: string, updates: Partial<Player>) {
-    await updateDoc(doc(db, "players", id), updates);
+    await supabase.from("players").update(updates).eq("id", id);
   }
 
   const activePlayers = players.filter((p) => p.active);
